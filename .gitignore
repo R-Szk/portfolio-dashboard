@@ -1,0 +1,19 @@
+# 環境変数・認証情報
+.env
+neon_certs.pem
+
+# データ(個人情報含む)
+data/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Mac
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
