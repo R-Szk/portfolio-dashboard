@@ -1,7 +1,7 @@
 -- 現在の保有状況ビュー
 -- 各 account × instrument ごとに、保有数量、平均取得単価、評価額、損益を計算
--- 株式は yfinance、投信は対応外(現在価格 NULL)
-
+-- 株式は yfinance、投信は Yahoo Finance Japan から取得
+-- 投信の基準価額は「1万口あたり」なので計算時に /10000 する
 CREATE OR REPLACE VIEW v_holdings_current AS
 WITH
 -- 銘柄ごとの累計買付・売却数量、買付額(取引通貨ベース)
@@ -59,21 +59,29 @@ SELECT
         WHEN ts.total_buy_qty > 0 THEN ts.total_buy_amount_local / ts.total_buy_qty
         ELSE NULL
     END AS avg_buy_price_local,
-    -- 現在価格
+    -- 現在価格(投信は1万口あたり価格をそのまま格納)
     lp.latest_price,
     lp.latest_price_date,
     -- 評価額(取引通貨ベース)
+    -- 投信: 口数 / 10000 × 基準価額、株式: 株数 × 株価
     CASE
         WHEN lp.latest_price IS NOT NULL
-        THEN (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
+        THEN
+            CASE WHEN i.instrument_type = 'mutual_fund'
+                THEN (ts.total_buy_qty - ts.total_sell_qty) / 10000.0 * lp.latest_price
+                ELSE (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
+            END
         ELSE NULL
     END AS market_value_local,
     -- 評価額(円換算)
     CASE
         WHEN lp.latest_price IS NOT NULL
         THEN
-            (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
-            * CASE WHEN i.currency = 'USD' THEN lf.usd_jpy_rate ELSE 1 END
+            CASE WHEN i.instrument_type = 'mutual_fund'
+                THEN (ts.total_buy_qty - ts.total_sell_qty) / 10000.0 * lp.latest_price
+                ELSE (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
+                     * CASE WHEN i.currency = 'USD' THEN lf.usd_jpy_rate ELSE 1 END
+            END
         ELSE NULL
     END AS market_value_jpy,
     -- 取得原価(円換算、保有分のみ)
@@ -86,8 +94,11 @@ SELECT
     CASE
         WHEN lp.latest_price IS NOT NULL AND ts.total_buy_qty > 0
         THEN
-            (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
-            * CASE WHEN i.currency = 'USD' THEN lf.usd_jpy_rate ELSE 1 END
+            CASE WHEN i.instrument_type = 'mutual_fund'
+                THEN (ts.total_buy_qty - ts.total_sell_qty) / 10000.0 * lp.latest_price
+                ELSE (ts.total_buy_qty - ts.total_sell_qty) * lp.latest_price
+                     * CASE WHEN i.currency = 'USD' THEN lf.usd_jpy_rate ELSE 1 END
+            END
             - (ts.total_buy_qty - ts.total_sell_qty) * (ts.total_buy_amount_jpy / ts.total_buy_qty)
         ELSE NULL
     END AS unrealized_pl_jpy,
@@ -100,5 +111,5 @@ JOIN accounts a ON ts.account_id = a.account_id
 JOIN instruments i ON ts.instrument_id = i.instrument_id
 LEFT JOIN latest_prices lp ON ts.instrument_id = lp.instrument_id
 CROSS JOIN latest_fx lf
-WHERE (ts.total_buy_qty - ts.total_sell_qty) <> 0  -- 保有数量が0のものは除外
+WHERE (ts.total_buy_qty - ts.total_sell_qty) > 0  -- 保有数量が正のものだけ表示
 ORDER BY a.account_name, i.ticker;

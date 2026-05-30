@@ -15,7 +15,7 @@ pandas==3.0.2
 peewee==4.0.5
 platformdirs==4.9.6
 protobuf==7.34.1
-psycopg2==2.9.12
+psycopg2-binary==2.9.12
 pycparser==3.0
 Pygments==2.20.0
 python-dateutil==2.9.0.post0
